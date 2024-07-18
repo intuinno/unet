@@ -14,14 +14,14 @@ from torchvision.transforms.functional import center_crop
 
 config = {
     "seed": 42,
-    "device": "cpu",
-    "data_dir": "/Users/intuinno/codegit/dataset/carvana",
+    "device": "cuda:0",
+    "data_dir": "/home/intuinno/codegit/dataset/carvana",
     "mask_channels": 1,
     "image_channels": 3,
-    "batch_size": 128,
+    "batch_size": 16,
     "learning_rate": 2.5e-4,
     "epochs": 1000000,
-    "eval_every": 10,
+    "eval_every": 50,
 }
 
 config = SimpleNamespace(**config)
@@ -55,17 +55,21 @@ def main():
     sigmoid = nn.Sigmoid()
     loss_func = nn.BCELoss()
 
+    losses = []
     for epoch in tqdm(range(config.epochs)):
         # Evaluate model
         if epoch % config.eval_every == 0:
             with torch.no_grad():
+                # Log mask sample
                 x, _ = next(iter(data_loader))
                 x = x.to(config.device)
                 mask = sigmoid(model(x))
                 x = center_crop(x, [mask.shape[2], mask.shape[3]])
-                x = x[:9]
-                grid = torchvision.utils.make_grid(x)
+                result = x * mask
+                result = result[:9]
+                grid = torchvision.utils.make_grid(result, nrow=3)
                 logger.add_image("images", grid, epoch)
+
                 logger.flush()
 
         # Train model
@@ -77,11 +81,14 @@ def main():
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
+        losses.append(loss.cpu().detach().numpy())
 
+        # Log losses
         if epoch % config.eval_every == 0:
-            logger.add_scalar("training_loss", loss, epoch)
-            print(f"Step: {epoch},\tLoss: {loss}")
-
+            avg_loss = np.array(losses).mean()
+            logger.add_scalar("training_loss", avg_loss, epoch)
+            losses = []
+            print(f"Step: {epoch},\tLoss: {avg_loss}")
 
 if __name__ == "__main__":
     main()
